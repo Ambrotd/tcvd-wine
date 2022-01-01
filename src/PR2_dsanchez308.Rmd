@@ -1,0 +1,466 @@
+---
+title: "Práctica 2: Limpieza y validación de los datos"
+author: "Daniel Sánchez Ambite"
+date: "01/01/2022"
+output:
+  pdf_document:
+    highlight: zenburn
+    latex_engine: xelatex
+    toc: yes
+  word_document: default
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+## Descripción del dataset
+El dataset elegido era una de las opciones que se planteaban en el enunciado de la práctica, si bien en este caso he decidido coger la versión completa diponible en https://archive.ics.uci.edu/ml/datasets/Wine+Quality. Este dataset dispone de 1599 instancias de vino tinto y 4898 de vino blanco y contiene 11 atributos más el output. En su descripción podemos leer que no tiene valores nulos y que algunos de sus atributos están correlacionados por lo que puede ser interesante la selección de atributos.
+
+ 
+
+Las variables del dataset son las siguientes:
+
+**fixed.acidity**: la acided fija del vino.
+
+**volatile.acidity**: acidez volátil.
+
+**citric.acid**: ácido cítrico.
+
+**residual.sugar**: azucar residual.
+
+**chlorides**: cloritos.
+
+**free.sulfur.dioxide**: dióxido de azufre libre.
+
+**total.sulfur.dioxide**: dióxido de azufre total.
+
+**density**: densidad.
+
+**pH**: valor del PH (mide el nivel de acided)
+
+**sulphates**: sulfitos.
+
+**alcohol**: cantidad de alcohol en volumen.
+
+**quality**: calidad del vino (este será el valor que intentaremos estimar con el resto de datos)
+
+**color**: el color del vino.
+
+### ¿Por qué es importante y qué pregunta/problema pretende responder?
+
+El objetivo de nuestro análisis va a consistir en intentar estimar la calidad de los vinos en función de sus propiedades, además al disponer de dos data set diferenciados por dos tipos de vino se van a unir para analizar si es posible además identificar el tipo de vino blanco o rojo en función de sus propiedades.
+
+## Integración y selección de los datos de interés a analizar.
+```{r,messages=FALSE}
+library(ggplot2)
+library(dplyr)
+# Loading data.
+white <- read.csv("./datasetwine/winequality-white.csv", header = TRUE, sep = ";")
+red <- read.csv("./datasetwine/winequality-red.csv", header = TRUE, sep = ";")
+white$color <- "white"
+#adding the color before merging
+red$color <- "red"
+# merging vertically
+wine <- rbind(white,red)
+summary(wine)
+```
+
+En la presentación del dataset nos dice que no tiene valores nulos y que todas las variables son numéricas. En este caso nosotros le hemos añadido la variable color antes de unir los dos datasets para poder diferenciar entre vinos tintos y blancos. Comprobaremos no obstante que es cierto que no existen valores nulos.
+
+## Limpieza de los datos
+### ¿Los datos contienen ceros o elementos vacíos? ¿Cómo gestionarías cada uno de estos casos?
+
+```{r,messages=FALSE}
+if (!require('skimr')) install.packages('skimr'); library('skimr')
+skim(wine)
+```
+
+Se puede observar que no falta ningún valor en las variables como ya anunciaba el data set con el paquete de skimr nos muestra que no existen valores vacíos y que todos las variables son numéricas salvo la de color que hemos introducido nosotros.
+Los valores nulos también se pueden comprobar de forma nativa en R con:
+```{r}
+# Numeric values
+colSums(is.na(wine))
+```
+```{r}
+# Looking for empty strings
+colSums(wine=="")
+```
+
+
+
+
+
+### Identificación y tratamiento de valores extremos
+
+Comenzamos comprobando los outliers que existen en el dataset para ello vamos a usar boxplots que nos lo muestra de una manera visual y además R almacena los outliers en la variable $out.
+
+```{r}
+#removing the color column
+wine_n <- wine
+wine_n$color <- NULL
+g_caja <- boxplot(wine_n, col = rainbow(ncol(wine_n)))
+
+```
+
+En este gráfico se puede observar como las variables free.sulfur.dioxide y total.sulfur.dioxide no se encuentran en la misma escala por lo que desvirtuan el gráfico, podemos escalar o normalizar los datos para reducir el problema:
+```{r}
+# use the function scale to normalize the data
+scaled_wine <- scale(wine_n)
+g_caja_e <- boxplot(scaled_wine, col = rainbow(ncol(wine_n)))
+```
+
+Podemos ver como esta normalización distorsiona bastante los valores así que no la vamos a usar y vamos a quitar los outliers del dataset sin normalizar:
+```{r}
+#remove the outliers and change them for NA
+for(i in 1:ncol(wine_n)){
+  
+  wine_n[, i][wine_n[,i] > quantile(wine_n[,i], 3/4)] = NA
+}
+# Remove NA values
+clean_wine <-wine_n[complete.cases(wine_n),]
+# Check the new box
+clean_box <- boxplot(clean_wine, col= rainbow(ncol(wine_n)))
+clean_box$out
+nrow(clean_wine)
+```
+
+Con esta aproximación si eliminamos todos los outliers de todas las columnas acabamos con un dataset muy reducido por lo que vamos a intentar limpiar solo los outliers de las columnas que distorsionen realmente el resultado si es necesario.
+
+
+## Análisis de los datos
+
+Vamos a continuar con el dataset con outliers pero vamos a quitar las dos columnas fuera del rango para ver como se comportan el resto
+
+```{r,messages=FALSE}
+library("dplyr")
+#restorting wine_n
+wine_n <- wine
+wine_n$color <- NULL
+sub_wine1 <- select(wine_n, -c(free.sulfur.dioxide, total.sulfur.dioxide))
+boxplot(sub_wine1, col= rainbow(ncol(sub_wine1)))
+```
+
+Observamos la caja verde que tiene una varianza superior al resto esta caja se corresponde con el azúcar residual seguido del alcohol que es la caja morada. Para poder observar con más detalle como se comportan el resto vamos a eliminar el azucar residual:
+```{r}
+sub_wine2 <- select(sub_wine1, -c(residual.sugar))
+boxplot(sub_wine2, col= rainbow(ncol(sub_wine2)))
+```
+
+Y aquí podemos observar como la varianza de la ácidez y el alcohol son las más significativas después de la del azucar y además vemos como la caja rosa que es la calidad tiene el borde superior coincidente con la mediana.
+
+
+Se va a analizar la correlación entre las distintas variables del dataset:
+```{r}
+#knitr::opts_chunk$set(fig.width=40, fig.height = 40, fi)
+if (!require('corrplot')) install.packages('corrplot'); library('corrplot')
+
+var_cor <- cor(wine_n)
+#show visual correlation
+corrplot(var_cor)
+var_cor
+
+```
+
+La correlación más alta sucede entre free.sulfur.dioxide y total.sulfur.dioxide con un valor de 0.72. También destaca la alta correlación entre las variables density y alcohol con un valor de -0.6867 es negativa por lo que al aumentar una variable disminuye la otra. Las variables density con residual sugar tienen una correlación de 0.552 y en este rango o un poco menor también están los pares total.sulfur.dioxide y volatile.acidity, density y fixed.acidity, total.sulfur.dioxide y residual sugar. 
+
+Para ver estas relaciones se muestra otra gráfica en al que podemos observar visualmente los datos 2 a 2
+```{r, fig.width=10, fig.height=10, fig.fullwidth=TRUE,messages=FALSE}
+if (!require('GGally')) install.packages('GGally'); library('GGally')
+ggpairs(wine_n)
+```
+
+Como ya hemos podido observar que variables están relacionadas vamos a crear el mismo plot pero solo para ellas, y poder analizarlas en más detalle,
+
+1. free y total sulfur dioxide:
+```{r}
+free_total_dioxide <- data.frame(wine_n$free.sulfur.dioxide, wine_n$total.sulfur.dioxide)
+ggpairs(free_total_dioxide)
+```
+
+
+Vemos como hay un outlier que distorsiona la gráfica por lo que lo vamos a eliminar
+```{r}
+wine_n <- wine_n[!(wine_n$free.sulfur.dioxide %in% boxplot.stats(wine_n$free.sulfur.dioxide)$out),]
+#reprint the value
+free_total_dioxide <- data.frame(wine_n$free.sulfur.dioxide, wine_n$total.sulfur.dioxide)
+ggpairs(free_total_dioxide)
+```
+
+2. density y alcohol:
+```{r}
+density_alcohol <- data.frame(wine_n$density, wine_n$alcohol)
+ggpairs(density_alcohol)
+```
+
+Igual que sucedía antes tenemos algún valor que distorsiona la gráfica por lo que vamos a eliminarlo
+```{r}
+wine_n <- wine_n[!(wine_n$density %in% boxplot.stats(wine_n$density)$out),]
+#reprint the value
+density_alcohol <- data.frame(wine_n$density, wine_n$alcohol)
+ggpairs(density_alcohol)
+```
+
+Vemos como se puede ver la correlación y en este caso además la pendiente de la recta de regresión es negativa ya que al aumentar uno de los valores disminuye el otro y viceversa.
+
+
+3. Density y residual sugar:
+```{r}
+density_sugar <- data.frame(wine_n$density, wine_n$residual.sugar)
+ggpairs(density_sugar)
+```
+
+En este caso como ya eliminamos los valores outliers de la variable density nos sale directamente sin tener que limpiar por lo que podemos ver la correlación positiva que existe.
+Podríamos continuar realizando las gráficas 2 a dos entre los distintos atributos del dataset e iriamos observando como las correlaciones son cada vez más pequeñas y el gráfico comenzará a dejar de formar una línea a lo largo de la regresión.
+
+### Análisis de componentes principales
+
+Vamos a realizar el PCA que es un método de reducción de la dimensionalidad que transforma conjuntos de datos con numerosas variables en conjuntos más pequeños con atributos que contienen la mayoría de la información reelevante. Esto es muy util para datasets con un gran número de atributos, en nuestro caso que solo tenemos 11 no es algo muy necesario pero lo vamos a realizar a modo de demostración.
+
+La idea subyacente es que vamos a comprobar como los distintos atributos afectan a la variabilidad del dataset y como las dimensiones son en realidad variables formadas por combinaciones de los atributos iniciales.
+
+Vamos a utilizar prcomp para el análisis como lo que pretendemos encontrar es la calidad del vino lo vamos a quitar del dataset y es importante que le pasemos el flag de scale TRUE ya que sin este tendríamos unos atributos descompensados y el PC1 tendría un peso en la varianza muy alto
+```{r}
+wine_pca_init <- wine_n
+wine_pca_init$quality <- NULL
+wine_pca <- prcomp(x=wine_pca_init, scale= TRUE)
+summary(wine_pca)
+```
+
+Podemos ver un resumen de como afecta cada componente a la variabilidad de los datos y la proporción de cada atributo a la varianza de los datos y como estos están ordenados de mayor a menor.
+Vamos a ver gráficamente como afecta cada componente
+```{r,messages=FALSE}
+if (!require('factoextra')) install.packages('factoextra'); library('factoextra')
+fviz_eig(wine_pca, addlabels= TRUE, center= TRUE)
+```
+
+Para conseguir identificar cuanto influye cada variable y cada componente en las distintas dimensiones tenemos que ver el contenido de rotation:
+```{r}
+wine_pca$rotation
+```
+Por ejemplo podemos ver como las variables que más afectan a la dimensión 1 son total sulfur dioxide de forma negativa con -0.4824 y free sulfur dioxide también de forma negativa seguida de volatile acidity. Podríamos ir analizando el comportamiento de cada atributo para las distintas dimensiones.
+
+A continuación vamos a obtener los valore propios o eigenvalues
+```{r}
+get_eigenvalue(wine_pca)
+```
+
+Los valores propios indican las varianzas de los componentes principales. Para seleccionar los componentes podemos usar la regla de Kaiser-Futman en la que se seleccionan los valores por encima de 1 que en este caso sería los 3 primeros.
+
+TAmbién podemos mostrar gráficamente como afectan o contribuyen las distintas variables a las dimensiones:
+```{r}
+#Variable contribution to dimension 1
+fviz_contrib(wine_pca, choice = "var", axes = 1, top = 10)
+```
+
+Como ya vimos en rotation simplemente aquí lo vemos visualmente que resulta más sencillo.
+
+Dimensión 2:
+```{r}
+#Variable contribution to dimension 2
+fviz_contrib(wine_pca, choice = "var", axes = 2, top = 10)
+```
+
+En este caso vemos como a la dimensión dos las variables que más afectan son density y alcohol.
+
+Como las dimensiones 1 y 2 son las que más peso tienen sobre el dataset vamos a ver como contribuyen las variables a la mezcla de las 2
+```{r}
+#Variable contribution to dimension 1
+fviz_contrib(wine_pca, choice = "var", axes = 1:2, top = 10)
+```
+
+Aquí vemos como la que más influye es la densidad y como le siguen el total de dioxido de sulfato y el azúcar residual.
+
+### Conclusiones del análisis de componentes principales
+
+Se ha observado como las 7 primeras dimensiones contribuyen al 90% de la variabilidad del dataset siendo los componentes 1 y 2 muy importantes ya que entre los dos suman un 50% y a su vez hemos visto como los atributos que más afectan a las dos primeras componentes son la densiddad el dioxido de sulfato total y el azúcar residual.
+
+
+## Comprobación de la normalidad 
+
+Se va a proceder a comprobar la normalidad de las distintabas variables que corresponden a las propiedades físicas del vino mediante la prueba de normalidad de Anderson-Darling. Para ver si corresponde o no a una distribución normal se compara con un p-valor de 0.05 si es superior consideraremos que la variable sigue una distribución normal.
+
+```{r,messages=FALSE}
+if(!require(nortest)){
+    install.packages('nortest', repos='http://cran.us.r-project.org')
+    library(nortest)
+}
+alpha = 0.05
+columns = colnames(wine_n)
+for (i in 1:ncol(wine_n)) {
+  if (is.integer(wine_n[,i]) | is.numeric(wine_n[,i])) {
+    p_val = ad.test(wine_n[,i])$p.value
+    if (p_val > alpha) {
+      cat("Sigue una distribución normal -> ")
+      cat(columns[i])
+      cat("\n")
+    }
+    else {
+      cat("No sigue una distribución normal -> ")
+      cat(columns[i])
+      cat("\n")
+    }  
+  }
+}
+```
+
+
+
+## Modelo para predecir la calidad del vino
+
+Para realizar el modelo tenemos que preparar en primer lugar el dataset para ello vamos a aleatorizar el orden y separarlo en una propoción de 70-30 para tener tanto datos para entrenar el modelo como para comprobar la calidad del mismo.
+
+Primero aleatorizamos la muestra fijando un seed
+```{r}
+set.seed(123)
+wine_random_q <- wine[sample(nrow(wine)),]
+#Quitamos la columna color ya que aquí no nos hace falta
+wine_random_q$color <-NULL
+```
+
+```{r}
+
+wine_train <- sample_frac(wine_random_q, .7)
+wine_test <- setdiff(wine_random_q, wine_train)
+
+
+```
+
+Creamos el modelo de regresión:
+
+```{r}
+lm_model <- lm(quality ~ fixed.acidity + volatile.acidity + citric.acid + chlorides + free.sulfur.dioxide + total.sulfur.dioxide + density + pH + sulphates + alcohol, data = wine_train)
+summary(lm_model)
+```
+Podemos comprobar la normalidad del modelo con el test the shapiro
+```{r}
+hist(lm_model$residuals, breaks = 30)
+shapiro_test <- shapiro.test(lm_model$residuals)
+shapiro_test
+```
+
+El test the shapiro nos indica que la distribución no es normal ya que el p-value es menor a 0.05
+
+Vamos a comprobar como funciona el modelo 
+```{r}
+results = round(predict(lm_model, newdata = wine_test))
+```
+Podemos utilizar la matriz de confusión para ver que tal ha quedado la clasificación:
+```{r,messages=FALSE}
+if(!require(caret)){
+    install.packages('caret', repos='http://cran.us.r-project.org')
+    library(caret)
+}
+confusionMatrix(factor(results,levels=3:8), factor(wine_test$quality,levels=3:8))
+```
+Si observamos aunque la predicción exacta es bastante mala con tan solo un 54.67% de acierto si que podemos ver en la matriz de confusión como la mayoría se encuentran cercanos a la diagonal por lo que en la mayor parte de los casos hay un error de +-1 en la calidad esto es principalmente porque la calidad se expresaba en enteros y esto hace que igual sea más interesante crear un clasificador y pasar los valores numéricos a bueno malo o normal.
+
+```{r}
+if(!require(lares)){
+    install.packages('lares', repos='http://cran.us.r-project.org')
+    library(lares)
+}
+lares::mplot_lineal(tag = wine_test$quality, 
+                    score = results,
+                    subtitle = "Wine quality regression model",
+                    model_name = "wine_quality_1")
+```
+Voy a probar con un modelo clasificador para ver si mejora ya que al haber solo 4 valores discretos en la calidad puede ser que sea más efectivo con la clasificación que la regresión.
+```{r}
+set.seed(123)
+wine_random_qc <- wine[sample(nrow(wine)),]
+#Quitamos la columna color ya que no nos hace falta
+wine_random_qc$color <-NULL
+#separamos las y que será el color del resto del dataset x
+y <- wine_random_qc[,12] 
+X <- wine_random_qc[,-12] 
+
+# Separamos 1/3
+split_prop <- 3 
+index = sample(1:nrow(wine), size=floor(((split_prop-1)/split_prop)*nrow(wine)))
+wine_trainX <- X[index,]
+wine_testX <- X[-index,]
+wine_trainy <- y[index]
+wine_testy <- y[-index]
+```
+Creamos el modelo:
+```{r,messages=FALSE}
+wine_trainy = as.factor(wine_trainy)
+model_q <- C50::C5.0(wine_trainX, wine_trainy,rules=TRUE)
+#summary(model_q)
+```
+Observamos que a simple vista mejora el modelo de regresión al reducir los errores al 21% vamos a comprobar como predice
+```{r}
+predicted_model_q <- predict( model_q, wine_testX, type="class" )
+print(sprintf("El modelo clasifica la calidad del vino con una precisión del: %.4f %%",100*sum(predicted_model_q == wine_testy) / length(predicted_model_q)))
+```
+
+Vemos que sigue siendo batante malo y apenas hemos mejorado y solo predice la calidad en un 56% de los casos.
+
+## Modelo para predecir el color del vino
+
+Como al comenzar unimos los dataset de vino blanco y vino tinto vamos a utilizar un modelo de árbol de decisión para ver si es posible predecir el color de vino por sus propiedades.
+Para ello vamos a coger el dataset y aleatorizarlo y eliminar la columna quality:
+```{r}
+set.seed(123)
+wine_random_c <- wine[sample(nrow(wine)),]
+#Quitamos la columna quality ya que no nos hace falta
+wine_random_c$quality <-NULL
+#separamos las y que será el color del resto del dataset x
+y <- wine_random_c[,12] 
+X <- wine_random_c[,-12] 
+
+# Separamos 1/3
+split_prop <- 3 
+index = sample(1:nrow(wine), size=floor(((split_prop-1)/split_prop)*nrow(wine)))
+wine_trainX <- X[index,]
+wine_testX <- X[-index,]
+wine_trainy <- y[index]
+wine_testy <- y[-index]
+
+```
+Creamos el modelo:
+```{r}
+wine_trainy = as.factor(wine_trainy)
+model <- C50::C5.0(wine_trainX, wine_trainy,rules=TRUE)
+#summary(model)
+```
+
+El modelo parece bastente bueno ya que solo hay 23 errores de 4331 lo que supone un 0.5% de error. Vamos a ver como se comporta prediciendo el conjunto de test:
+```{r}
+predicted_model <- predict( model, wine_testX, type="class" )
+print(sprintf("El modelo clasifica los vinos con una precisión del: %.4f %%",100*sum(predicted_model == wine_testy) / length(predicted_model)))
+```
+Vemos que nuestro clasificador es muy bueno y que por lo tanto clasifica de manera correcta el vino en blanco o tinto en función de sus cualidades con una precisión del 98.89%
+
+Vamos a comprobar la matriz de confusión en este caso:
+```{r}
+reference <- as.factor(wine_testy)
+cm <-confusionMatrix(data=predicted_model, reference = reference, positive="white")
+cm
+```
+```{r}
+fourfoldplot(cm$table, color = c("cyan", "pink"),
+             conf.level = 0, margin = 1, main = "Confusion Matrix Color Wine")
+```
+
+Vemos que solo tenenmos mal clasificados 7 blancos y 17 rojos por lo que el clasificador es bastante bueno.
+
+## Resolución del problema. A partir de los resultados obtenidos, ¿cuáles son las conclusiones?¿Los resultados permiten responder al problema?
+
+Tras realizar el análisis de los datos hemos creado dos modelos uno de regresión para intentar predecir la calidad del vino en función de sus atributos y en este caso el resultado no ha sido muy bueno tanto si utilizamos un modelo de regresión como si usamos un árbol para clasificar. Esto es porque la calidad de los vinos tiene un rango muy pequeño y no se ha podido predecir la calidad de forma satisfactoria.
+En el caso del modelo para predecir el tipo de vino (blanco, tinto) si que ha sido bastante satisfactorio y podemos predecir el tipo de vino en función de sus atributos con más de un 98% de precisión por lo que a la vista de los resultados obtenidos si que podemos predecir el tipo de vino por sus atributos pero no su calidad.
+
+## Repositorio y video
+
+El link del respositorio es el siguiente https://github.com/Ambrotd/tcvd-wine/
+
+El video ha sido subido a Google Drive https://drive.google.com/file/d/1D0zbKzF9seoLecW2LUNvfjD8tL-yLgsc/view?usp=sharing 
